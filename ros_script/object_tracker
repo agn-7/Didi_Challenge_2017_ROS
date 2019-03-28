@@ -58,9 +58,11 @@ fi
 # launch
 if [ $FIND_CAR == 0 ]; then
     echo -e "\e[92mStart cluster tracker\e[0m"
+    echo "PED"
     roslaunch cluster_tracker.launch object_mode:=$OBJECT_MODE
 else
     echo -e "\e[92mStart deep learning tracker\e[0m"
+    echo "CAR"
     roslaunch dl_tracker.launch object_mode:=$OBJECT_MODE
 fi
 
