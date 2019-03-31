@@ -357,7 +357,7 @@ private:
         // publish markers
         detectedMarkerPublisher_.publish(detectedMarkers_);
         predictedMarkerPublisher_.publish(predictedMarkers_);
-        // ROS_INFO("ClusterTracker: published %d markers", markerCnt);
+        ROS_INFO("ClusterTracker: published %d markers", markerCnt);
 	}
 
 	void publishBoxes(const std::list<Box*>& boxes)
