@@ -1,5 +1,3 @@
-<?xml version="1.0"?>
-
 <launch>
   <!-- declare arg to be passed in -->
   <arg name="object_mode" />

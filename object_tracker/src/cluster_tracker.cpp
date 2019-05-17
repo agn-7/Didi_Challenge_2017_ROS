@@ -80,8 +80,8 @@ public:
             marker.scale.z = 0.2;
             marker.color.a = 0.0;
             marker.color.r = 1.0;
-            marker.color.g = 1.0;
-            marker.color.b = 0.5;
+            marker.color.g = 0.0;
+            marker.color.b = 0.0;
             detectedMarkers_.markers.push_back(marker);
         }
         for (int i = 0; i < 1; i++)
@@ -357,7 +357,7 @@ private:
         // publish markers
         detectedMarkerPublisher_.publish(detectedMarkers_);
         predictedMarkerPublisher_.publish(predictedMarkers_);
-        ROS_INFO("ClusterTracker: published %d markers", markerCnt);
+        // ROS_INFO("ClusterTracker: published %d markers", markerCnt);
 	}
 
 	void publishBoxes(const std::list<Box*>& boxes)
