@@ -101,7 +101,7 @@ public:
             marker.scale.x = 0.2;
             marker.scale.y = 0.2;
             marker.scale.z = 0.2;
-            marker.color.a = 0.0;
+            marker.color.a = 0.1;
             marker.color.r = 1.0;
             marker.color.g = 1.0;
             marker.color.b = 0.0;
@@ -110,8 +110,8 @@ public:
 
         if (PUBLISH_GROUND)
     	{
-    		publisherGround_ = n.advertise<sensor_msgs::PointCloud2>("/tracker/ground", 1);
-    		cloudGround_ = PCLPointCloud::Ptr(new PCLPointCloud());
+    	    publisherGround_ = n.advertise<sensor_msgs::PointCloud2>("/tracker/ground", 1);
+    	    cloudGround_ = PCLPointCloud::Ptr(new PCLPointCloud());
     	}
 
         ROS_INFO("ClusterTracker: initialized");
@@ -319,7 +319,7 @@ private:
 			mit->scale.x = (*cit)->max()(0) - (*cit)->min()(0);
 			mit->scale.y = (*cit)->max()(1) - (*cit)->min()(1);
 			mit->scale.z = (*cit)->max()(2) - (*cit)->min()(2);
-			mit->color.a = 0.1;
+			mit->color.a = 0.5;
 
 			++mit;
 			++markerCnt;
