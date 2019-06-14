@@ -28,6 +28,10 @@ public:
     	predictedMarkerPublisher_ = n.advertise<visualization_msgs::MarkerArray>("/tracker/markers/predict", 1);
 		cloud_ = PCLPointCloud::Ptr(new PCLPointCloud());
 
+		// Evaluation parameters
+		framer = 0;
+		TruePositive = 0;
+
 		// init cluster builder
 		value_type resolution = 0.0;
 		value_type roiRad = 0.0;
@@ -137,6 +141,9 @@ private:
   //           // Some other operations
   //           ROS_INFO("point: %f %f %f %f %f %f", x, y, z, a, b, c);
   //      	}
+
+        framer++;
+        std::cout<<"Frame: "<<framer<<"\n";
 
 		sensor_msgs::PointCloud2 response = *msg;
 		pcl::fromROSMsg(response, *cloud_);
@@ -321,6 +328,11 @@ private:
 			mit->scale.z = (*cit)->max()(2) - (*cit)->min()(2);
 			mit->color.a = 0.5;
 
+			if (mit->pose.position.x < 3 and mit->pose.position.x > 0){
+			    TruePositive++;
+			    std::cout<<"TP: "<<TruePositive<<"\n";
+			}
+
 			++mit;
 			++markerCnt;
 		}
@@ -353,6 +365,8 @@ private:
 		{
 			mit->color.a = 0.0;
 		}
+
+		std::cout<<"___________________________________"<<"\n";
 
         // publish markers
         detectedMarkerPublisher_.publish(detectedMarkers_);
@@ -404,6 +418,8 @@ private:
 	}
 
 private:
+    int framer;
+	int TruePositive;
 	ros::Subscriber subscriber_;
 	ros::Publisher boxPublisher_;
 	ros::Publisher detectedMarkerPublisher_;
