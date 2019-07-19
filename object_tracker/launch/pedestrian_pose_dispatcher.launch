@@ -1,0 +1,10 @@
+<launch>
+
+	<!-- export detected persons positions -->
+	<node name="object_tracker" pkg="object_tracker" type="pedestrian_pose_dispatcher.py" output="screen" clear_params="true">
+        <!--param name="path_to_save" value="$(find object_tracker)" /-->
+        <param name="path_to_save" value="/home/agn/" />
+        <param name="marker_topic" value="/tracker/markers/detect" />
+    </node>
+
+</launch>
