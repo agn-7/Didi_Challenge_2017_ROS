@@ -1,27 +1,15 @@
 #!/usr/bin/env python
-import sys
-import os
-import time
+
 import rospy as rp
-import numpy as np
-import math
-import struct
-import tf
 import tf.transformations as transformer
 
-from sensor_msgs.msg import PointCloud2, PointField
-import sensor_msgs.point_cloud2 as pc2
+
 from std_msgs.msg import Float32MultiArray, Float64MultiArray, MultiArrayDimension
 from visualization_msgs.msg import Marker, MarkerArray
 
-from sklearn.cluster import DBSCAN
 
 import tensorflow
-import keras
-from keras.models import load_model
-from keras.optimizers import Adam
 
-from full_view_model import fcn_model
 from full_view_train import *
 from convert_to_full_view_panorama import *
 from dl_filter import dl_filter
@@ -35,186 +23,191 @@ MAX_MARKER_COUNT = 30
 PUBLISH_MARKERS = True
 CAR_LABEL = 1
 
+
 class dl_tracker:
+    def __init__(self):
+        # model
+        dir_path = os.path.dirname(os.path.realpath(__file__))
+        #self.model = load_model(os.path.join(dir_path, '../model/fv_model_for_car_June_30_132_63.h5'))
+        self.model = load_model(os.path.join(dir_path, '../model/fv_July_02_057.h5'))
+        # filter
+        self.filter = dl_filter()
+        # graph
+        self.graph = tensorflow.get_default_graph()
+        # communication
+        self.initialize_communication()
+        rp.loginfo("dl_tracker: initialized")
+        print "dl_tracker: initialized"
 
-	def __init__(self):
-		# model
-		dir_path = os.path.dirname(os.path.realpath(__file__))
-		#self.model = load_model(os.path.join(dir_path, '../model/fv_model_for_car_June_30_132_63.h5'))
-		self.model = load_model(os.path.join(dir_path, '../model/fv_July_02_057.h5'))
-		# filter
-		self.filter = dl_filter()
-		# graph
-		self.graph = tensorflow.get_default_graph()
-		# communication
-		self.initialize_communication()
-		rp.loginfo("dl_tracker: initialized")
-		print "dl_tracker: initialized"
+    def initialize_communication(self):
+        self.subscriber = rp.Subscriber("/filtered_points", Float64MultiArray, self.on_points_received, queue_size=1)
+        self.detected_marker_publisher = rp.Publisher("/tracker/markers/detect", MarkerArray, queue_size=1)
+        self.predicted_marker_publisher = rp.Publisher("/tracker/markers/predict", MarkerArray, queue_size=1)
+        self.box_publisher = rp.Publisher("/tracker/boxes", Float32MultiArray, queue_size=1)
+        self.detected_markers = MarkerArray()
+        self.predicted_markers = MarkerArray()
+        for i in range(MAX_MARKER_COUNT):
+            marker = Marker()
+            marker.id = i
+            marker.header.frame_id = "velodyne"
+            marker.type = marker.CUBE
+            marker.action = marker.ADD
+            marker.pose.position.x = 0.0
+            marker.pose.position.y = 0.0
+            marker.pose.position.z = 0.0
+            marker.pose.orientation.x = 0.0
+            marker.pose.orientation.y = 0.0
+            marker.pose.orientation.z = 0.0
+            marker.pose.orientation.w = 1.0
+            marker.scale.x = 1.0
+            marker.scale.y = 1.0
+            marker.scale.z = 1.0
+            marker.color.a = 0.0
+            marker.color.r = 1.0
+            marker.color.g = 0.0
+            marker.color.b = 0.0
+            self.detected_markers.markers.append(marker)
+        for i in range(1):
+            marker = Marker()
+            marker.id = i
+            marker.header.frame_id = "velodyne"
+            marker.type = marker.CUBE
+            marker.action = marker.ADD
+            marker.pose.position.x = 0.0
+            marker.pose.position.y = 0.0
+            marker.pose.position.z = 0.0
+            marker.pose.orientation.x = 0.0
+            marker.pose.orientation.y = 0.0
+            marker.pose.orientation.z = 0.0
+            marker.pose.orientation.w = 1.0
+            marker.scale.x = 1.0
+            marker.scale.y = 1.0
+            marker.scale.z = 1.0
+            marker.color.a = 0.0
+            marker.color.r = 1.0
+            marker.color.g = 1.0
+            marker.color.b = 0.0
+            self.predicted_markers.markers.append(marker)
 
-	def initialize_communication(self):
-		self.subscriber = rp.Subscriber("/filtered_points", Float64MultiArray, self.on_points_received, queue_size=1)
-		self.detected_marker_publisher = rp.Publisher("/tracker/markers/detect", MarkerArray, queue_size=1)
-		self.predicted_marker_publisher = rp.Publisher("/tracker/markers/predict", MarkerArray, queue_size=1)
-		self.box_publisher = rp.Publisher("/tracker/boxes", Float32MultiArray, queue_size=1)
-		self.detected_markers = MarkerArray()
-		self.predicted_markers = MarkerArray()
-		for i in range(MAX_MARKER_COUNT):
-			marker = Marker()
-			marker.id = i
-			marker.header.frame_id = "velodyne"
-			marker.type = marker.CUBE
-			marker.action = marker.ADD
-			marker.pose.position.x = 0.0
-			marker.pose.position.y = 0.0
-			marker.pose.position.z = 0.0
-			marker.pose.orientation.x = 0.0
-			marker.pose.orientation.y = 0.0
-			marker.pose.orientation.z = 0.0
-			marker.pose.orientation.w = 1.0
-			marker.scale.x = 1.0
-			marker.scale.y = 1.0
-			marker.scale.z = 1.0
-			marker.color.a = 0.0
-			marker.color.r = 1.0
-			marker.color.g = 0.0
-			marker.color.b = 0.0
-			self.detected_markers.markers.append(marker)
-		for i in range(1):
-			marker = Marker()
-			marker.id = i
-			marker.header.frame_id = "velodyne"
-			marker.type = marker.CUBE
-			marker.action = marker.ADD
-			marker.pose.position.x = 0.0
-			marker.pose.position.y = 0.0
-			marker.pose.position.z = 0.0
-			marker.pose.orientation.x = 0.0
-			marker.pose.orientation.y = 0.0
-			marker.pose.orientation.z = 0.0
-			marker.pose.orientation.w = 1.0
-			marker.scale.x = 1.0
-			marker.scale.y = 1.0
-			marker.scale.z = 1.0
-			marker.color.a = 0.0
-			marker.color.r = 1.0
-			marker.color.g = 1.0
-			marker.color.b = 0.0
-			self.predicted_markers.markers.append(marker)
+    def on_points_received(self, data):
+        total_start = time.time()
+        ts_sec = int(data.data[0])
+        ts_nsec = int(data.data[1])
 
-	def on_points_received(self, data):
-		total_start = time.time()
-		ts_sec = int(data.data[0])
-		ts_nsec = int(data.data[1])
+        num_cluster = 0
+        cluster_xy = np.empty((0, 2))
+        lidar_with_idx = np.empty((0, 4))
 
-		num_cluster = 0
-		cluster_xy = np.empty((0,2))
-		lidar_with_idx = np.empty((0,4))
+        if len(data.data) > 2:
+            num_cluster = int(data.data[2])
+            cluster_xy = np.array(data.data[3:3+2*num_cluster]).reshape(-1, 2)
+            lidar_with_idx = np.array(data.data[3+2*num_cluster:]).reshape(-1, 4)
+        box = np.empty((0, 8))
 
-		if (len(data.data) > 2):
-			num_cluster = int(data.data[2])
-			cluster_xy = np.array(data.data[3:3+2*num_cluster]).reshape(-1, 2)
-			lidar_with_idx = np.array(data.data[3+2*num_cluster:]).reshape(-1, 4)
-		box = np.empty((0,8))
+        # predict
+        with self.graph.as_default():
+            box = predict_and_correct(self.model, lidar_with_idx, cluster_xy,
+                                      clusterPoint=False, seg_thres=0.3, nb_d=1)
 
-		# predict
-		with self.graph.as_default():
-			box = predict_and_correct(self.model, lidar_with_idx, cluster_xy, 
-				clusterPoint=False, seg_thres=0.3, nb_d=1)
+        # filter by velocity
+        if len(box) == 0:
+            box = self.filter.prev_box
+            if len(box) != 0:
+                adv = self.filter.advance(ts_sec, ts_nsec)
+                box[1] += adv[0]
+                box[2] += adv[1]
+        if  len(box) != 0:
+            vel = self.filter.calc_velocity(box, ts_sec, ts_nsec)
+            angle = box[7]
+            #angle += np.arctan2(vel[1], vel[0])
+            # print "vel: ", vel
+            # print "ori ang: ", box[7]
+            # print "add ang: ", np.arctan2(vel[1], vel[0])
+            # print "ang: ", angle
+            box[7] = normalize_angle(angle)
 
-		# filter by velocity
-		if len(box) == 0:
-			box = self.filter.prev_box
-			if len(box) != 0:
-				adv = self.filter.advance(ts_sec, ts_nsec)
-				box[1] += adv[0]
-				box[2] += adv[1]
-		if  len(box) != 0:
-			vel = self.filter.calc_velocity(box, ts_sec, ts_nsec)
-			angle = box[7]
-			#angle += np.arctan2(vel[1], vel[0])
-			# print "vel: ", vel
-			# print "ori ang: ", box[7]
-			# print "add ang: ", np.arctan2(vel[1], vel[0])
-			# print "ang: ", angle
-			box[7] = normalize_angle(angle)
+        # boxes = [box]
+        # boxes = self.filter.filter_by_velocity(boxes, ts_sec, ts_nsec)
+        # box = boxes[0]
 
-		# boxes = [box]
-		# boxes = self.filter.filter_by_velocity(boxes, ts_sec, ts_nsec)
-		# box = boxes[0]
+        if PUBLISH_MARKERS:
+            if box != None and len(box) > 0:
+                self.publish_markers(box)
 
-		if PUBLISH_MARKERS:
-			if box != None and len(box) > 0:			
-				self.publish_markers(box)
+        if len(box) > 0:
+            self.publish_detected_box(box)
 
-		if len(box) > 0:			
-			self.publish_detected_box(box)
+        print ("total time: " + str(time.time() - total_start))
 
-		print ("total time: " + str(time.time() - total_start))
+    def publish_detected_box(self, box_info):
+        arr = Float32MultiArray()
+        flat_box_info = np.reshape(box_info, (-1))
+        arr.data = flat_box_info.tolist()
+        # publish
+        self.box_publisher.publish(arr)
+        #rp.loginfo("dl_tracker: published %d boxes", len(box_info))
 
-	def publish_detected_box(self, box_info):
-		arr = Float32MultiArray()
-		flat_box_info = np.reshape(box_info, (-1))
-		arr.data = flat_box_info.tolist()
-		# publish
-		self.box_publisher.publish(arr)
-		#rp.loginfo("dl_tracker: published %d boxes", len(box_info))
+    def publish_markers(self, box_info):
+        # num_boxes = len(det_box_info)
+        # if num_boxes > 0:
+        # 	# update markers
+        # 	num_markers = min(num_boxes, MAX_MARKER_COUNT)
+        # 	for i in range(num_markers):
+        # 		info = det_box_info[i]
+        # 		marker = self.detected_markers.markers[i]
+        # 		marker.pose.position.x = info[1]
+        # 		marker.pose.position.y = info[2]
+        # 		marker.pose.position.z = info[3]
+        # 		marker.scale.x = info[4]
+        # 		marker.scale.y = info[5]
+        # 		marker.scale.z = info[6]
+        # 		marker.pose.orientation.z = math.degrees(info[7])
+        # 		marker.color.a = 0.3
+        # 	# hide markers not used
+        # 	if num_boxes < MAX_MARKER_COUNT:
+        # 		for i in range(num_boxes, MAX_MARKER_COUNT):
+        # 			marker = self.detected_markers.markers[i]
+        # 			marker.color.a = 0.0
+        if len(box_info) > 0:
+            marker = self.predicted_markers.markers[0]
+            marker.pose.position.x = box_info[1]
+            marker.pose.position.y = box_info[2]
+            marker.pose.position.z = box_info[3]
+            marker.scale.x = box_info[4]
+            marker.scale.y = box_info[5]
+            marker.scale.z = box_info[6]
+            q = transformer.quaternion_from_euler(0,0,box_info[7])
+            marker.pose.orientation.x = q[0]
+            marker.pose.orientation.y = q[1]
+            marker.pose.orientation.z = q[2]
+            marker.pose.orientation.w = q[3]
+            marker.color.a = 0.3
+        # publish
+        # self.detected_marker_publisher.publish(self.detected_markers)
+        self.predicted_marker_publisher.publish(self.predicted_markers)
+        # rp.loginfo("dl_tracker: published %d markers", num_markers)
 
-	def publish_markers(self, box_info):
-		# num_boxes = len(det_box_info)
-		# if num_boxes > 0:
-		# 	# update markers
-		# 	num_markers = min(num_boxes, MAX_MARKER_COUNT)
-		# 	for i in range(num_markers):
-		# 		info = det_box_info[i]
-		# 		marker = self.detected_markers.markers[i]
-		# 		marker.pose.position.x = info[1]
-		# 		marker.pose.position.y = info[2]
-		# 		marker.pose.position.z = info[3]
-		# 		marker.scale.x = info[4]
-		# 		marker.scale.y = info[5]
-		# 		marker.scale.z = info[6]
-		# 		marker.pose.orientation.z = math.degrees(info[7])			
-		# 		marker.color.a = 0.3
-		# 	# hide markers not used
-		# 	if num_boxes < MAX_MARKER_COUNT:
-		# 		for i in range(num_boxes, MAX_MARKER_COUNT):
-		# 			marker = self.detected_markers.markers[i]
-		# 			marker.color.a = 0.0
-		if len(box_info) > 0:
-			marker = self.predicted_markers.markers[0]
-			marker.pose.position.x = box_info[1]
-			marker.pose.position.y = box_info[2]
-			marker.pose.position.z = box_info[3]
-			marker.scale.x = box_info[4]
-			marker.scale.y = box_info[5]
-			marker.scale.z = box_info[6]
-			q = transformer.quaternion_from_euler(0,0,box_info[7])
-			marker.pose.orientation.x = q[0]
-			marker.pose.orientation.y = q[1]
-			marker.pose.orientation.z = q[2]
-			marker.pose.orientation.w = q[3]
-			marker.color.a = 0.3
-		# publish
-		# self.detected_marker_publisher.publish(self.detected_markers)
-		self.predicted_marker_publisher.publish(self.predicted_markers)		
-		# rp.loginfo("dl_tracker: published %d markers", num_markers)
 
 def rotation_v(theta, points):
-	v = np.sin(theta)
-	u = np.cos(theta)
-	out = np.copy(points)
-	out[:,[0]] = u*points[:,[0]] + v*points[:,[1]]
-	out[:,[1]] = -v*points[:,[0]] + u*points[:,[1]]
-	return out
+    v = np.sin(theta)
+    u = np.cos(theta)
+    out = np.copy(points)
+    out[:,[0]] = u*points[:,[0]] + v*points[:,[1]]
+    out[:,[1]] = -v*points[:,[0]] + u*points[:,[1]]
+    return out
+
 
 def distance(p,q):
     return np.sqrt(np.sum(np.square(p-q)))
 
+
 def length(v):
-    return distance(v,0)
+    return distance(v, 0)
+
 
 def rotate(angle, lidar):
     return np.array([rotation(angle, lidar[i]) for i in range(len(lidar))])
+
 
 def fit_box(lidar, nb_d = 128):
     
@@ -247,6 +240,7 @@ def fit_box(lidar, nb_d = 128):
 
     return box_2d#, box
 
+
 def move_box(box, side):
     '''
     box: 2d box of shape (4,2)
@@ -270,46 +264,50 @@ def move_box(box, side):
      
     return correct_box
 
+
 def to_box2d(box_info):
-	center = box_info[1:3]
-	w = box_info[4] * 0.5
-	h = box_info[5] * 0.5
-	r = box_info[7]
-	box = np.array([[-w,h],[-w,-h],[w,-h],[w,h]])
-	box = rotation_v(r, box) + np.expand_dims(center, axis=0)
-	return box
+    center = box_info[1:3]
+    w = box_info[4] * 0.5
+    h = box_info[5] * 0.5
+    r = box_info[7]
+    box = np.array([[-w,h],[-w,-h],[w,-h],[w,h]])
+    box = rotation_v(r, box) + np.expand_dims(center, axis=0)
+    return box
+
 
 def normalize_angle(angle):
-	while angle > PI:
-		angle -= PI
-	while angle < 0:
-		angle += PI
-	if angle < 0.002:
-		angle = 0
-	if angle > PI - 0.002:
-		angle = PI
-	return angle
+    while angle > PI:
+        angle -= PI
+    while angle < 0:
+        angle += PI
+    if angle < 0.002:
+        angle = 0
+    if angle > PI - 0.002:
+        angle = PI
+    return angle
+
 
 def move_box_info(box_info, box):
-	center = np.mean(box, axis=0)
-	miny_idx = np.argmin(box[:,1])
-	# wv = box[(miny_idx+1)%4] - box[miny_idx]
-	# hv = box[(miny_idx+2)%4] - box[(miny_idx+1)%4]
-	wv = box[2] - box[1]
-	hv = box[1] - box[0]
-	rz = normalize_angle(np.arctan2(wv[1], wv[0]))
-	width = length(wv)
-	height = length(hv)
-	# # find nearest new rz from the old rz
-	# rz_candidate = np.array([nrz, normalize_angle(nrz + PI_2), normalize_angle(nrz + PI), normalize_angle(nrz + 3*PI_2)])	
-	# orz = normalize_angle(box_info[7])
-	# rz = rz_candidate[np.argmin(np.abs(rz_candidate - orz))]
-	box_info[1] = center[0]
-	box_info[2] = center[1]
-	box_info[4] = width
-	box_info[5] = height
-	box_info[7] = rz
-	return box_info
+    center = np.mean(box, axis=0)
+    miny_idx = np.argmin(box[:,1])
+    # wv = box[(miny_idx+1)%4] - box[miny_idx]
+    # hv = box[(miny_idx+2)%4] - box[(miny_idx+1)%4]
+    wv = box[2] - box[1]
+    hv = box[1] - box[0]
+    rz = normalize_angle(np.arctan2(wv[1], wv[0]))
+    width = length(wv)
+    height = length(hv)
+    # # find nearest new rz from the old rz
+    # rz_candidate = np.array([nrz, normalize_angle(nrz + PI_2), normalize_angle(nrz + PI), normalize_angle(nrz + 3*PI_2)])
+    # orz = normalize_angle(box_info[7])
+    # rz = rz_candidate[np.argmin(np.abs(rz_candidate - orz))]
+    box_info[1] = center[0]
+    box_info[2] = center[1]
+    box_info[4] = width
+    box_info[5] = height
+    box_info[7] = rz
+    return box_info
+
 
 def correct_box_info(predbox_info, fitbox):
     '''
@@ -344,7 +342,7 @@ def correct_box_info(predbox_info, fitbox):
     box_distances = np.array([length(box[i]) for i in range(4)])
     min_ind = np.argmin(box_distances)
     if min_ind == min_fit_ind:
-    	moved_info = move_box_info(predbox_info, box)
+        moved_info = move_box_info(predbox_info, box)
         return moved_info
     else:
         indices = [(min_pred_ind + i + 2)%4 for i in range(4)]
@@ -352,21 +350,23 @@ def correct_box_info(predbox_info, fitbox):
         box = move_box(box, side)
         moved_info = move_box_info(predbox_info, box)
         return moved_info
-  
+
+
 def correct_predicted_box(box_info, lidar_with_idx, cluster_xy, nb_d=128):
     nb_clusters = len(cluster_xy)
     if nb_clusters == 0:
         return box_info
     else:
         box_xy = box_info[1:3]
-    	distances = [distance(box_xy, cluster_xy[i]) for i in range(nb_clusters)]
-    	ind = np.argmin(distances)
-    	cluster_points = lidar_with_idx[lidar_with_idx[:,3] == ind]
-    	if (len(cluster_points) == 0):
-    		return box_info
-    	fitbox = fit_box(cluster_points, nb_d)
-    	correctbox = correct_box_info(box_info, fitbox)
-    	return correctbox
+        distances = [distance(box_xy, cluster_xy[i]) for i in range(nb_clusters)]
+        ind = np.argmin(distances)
+        cluster_points = lidar_with_idx[lidar_with_idx[:,3] == ind]
+        if len(cluster_points) == 0:
+            return box_info
+        fitbox = fit_box(cluster_points, nb_d)
+        correctbox = correct_box_info(box_info, fitbox)
+        return correctbox
+
 
 def one_box_clustering(boxes, eps = 1, min_samples = 1):
     # Extract the center from predicted boxes
@@ -383,70 +383,74 @@ def one_box_clustering(boxes, eps = 1, min_samples = 1):
     box = np.mean(boxes[index],axis = 0)
     return box
 
+
 def rotation_v(theta, points):
-	v = np.sin(theta)
-	u = np.cos(theta)
-	out = np.copy(points)
-	out[:,[0]] = u*points[:,[0]] + v*points[:,[1]]
-	out[:,[1]] = -v*points[:,[0]] + u*points[:,[1]]
-	return out
+    v = np.sin(theta)
+    u = np.cos(theta)
+    out = np.copy(points)
+    out[:, [0]] = u*points[:, [0]] + v*points[:, [1]]
+    out[:, [1]] = -v*points[:, [0]] + u*points[:, [1]]
+    return out
+
 
 def predict_and_correct(model, lidar_with_idx, cluster_xy, clusterPoint=True, seg_thres=0.5, nb_d=128):
     
-	test_view, _, _ =  fv_cylindrical_projection_for_test(lidar_with_idx, clustering=clusterPoint)
+    test_view, _, _ = fv_cylindrical_projection_for_test(lidar_with_idx, clustering=clusterPoint)
 
-	view = test_view[:,:,[5,2]].reshape(1,16,320,2)
+    view = test_view[:, :, [5, 2]].reshape(1, 16, 320, 2)
 
-	test_view_reshape = test_view.reshape(-1,6)
-	pred = model.predict(view)
-	pred = pred[0].reshape(-1,8)
+    test_view_reshape = test_view.reshape(-1, 6)
+    pred = model.predict(view)
+    pred = pred[0].reshape(-1, 8)
 
-	thres_pred = pred[pred[:,0] > seg_thres]
-	thres_view = test_view_reshape[pred[:,0] > seg_thres]
+    thres_pred = pred[pred[:, 0] > seg_thres]
+    thres_view = test_view_reshape[pred[:, 0] > seg_thres]
 
-	num_boxes = len(thres_pred)
-	if num_boxes == 0:
-		return np.array([])
-	boxes = np.zeros((num_boxes,8))
+    num_boxes = len(thres_pred)
+    if num_boxes == 0:
+        return np.array([])
+    boxes = np.zeros((num_boxes, 8))
 
-	theta = thres_view[:,[3]]
-	phi = thres_pred[:,[-1]]
+    theta = thres_view[:, [3]]
+    phi = thres_pred[:, [-1]]
 
-	min = thres_view[:,:3] - rotation_v(theta, thres_pred[:,1:4]) # 0: left top
-	max = thres_view[:,:3] - rotation_v(theta, thres_pred[:,4:7]) # 6: right bottom
-	center = (min + max) * 0.5
-	dvec = max - min
-	sinphi = np.sin(phi)
-	cosphi = np.cos(phi)
-	normdxy = np.linalg.norm(dvec[:,:2], axis=1) # distance between 0 and 2
-	normdxy = normdxy.reshape(-1, 1)
-	width = normdxy * abs(sinphi)
-	height = normdxy * abs(cosphi)
-	depth = dvec[:,[2]]
-	ax = np.arctan2(dvec[:,[1]], dvec[:,[0]]) # angle from x axis to vector 2-0
-	rz = [0.5 * PI - phi[i] + ax[i] for i in range(len(ax))]
+    min = thres_view[:, :3] - rotation_v(theta, thres_pred[:, 1:4])  # 0: left top
+    max = thres_view[:, :3] - rotation_v(theta, thres_pred[:, 4:7])  # 6: right bottom
+    center = (min + max) * 0.5
+    dvec = max - min
+    sinphi = np.sin(phi)
+    cosphi = np.cos(phi)
+    normdxy = np.linalg.norm(dvec[:, :2], axis=1)  # distance between 0 and 2
+    normdxy = normdxy.reshape(-1, 1)
+    width = normdxy * abs(sinphi)
+    height = normdxy * abs(cosphi)
+    depth = dvec[:, [2]]
+    ax = np.arctan2(dvec[:, [1]], dvec[:, [0]])  # angle from x axis to vector 2-0
+    rz = [0.5 * PI - phi[i] + ax[i] for i in range(len(ax))]
 
-	boxes[:,[0]] = CAR_LABEL
-	boxes[:,1:4] = center
-	boxes[:,[4]] = width
-	boxes[:,[5]] = height
-	boxes[:,[6]] = depth
-	boxes[:,[7]] = rz
+    boxes[:, [0]] = CAR_LABEL
+    boxes[:, 1:4] = center
+    boxes[:, [4]] = width
+    boxes[:, [5]] = height
+    boxes[:, [6]] = depth
+    boxes[:, [7]] = rz
 
-	one_box = one_box_clustering(boxes)
-	one_box_info = correct_predicted_box(one_box, lidar_with_idx, cluster_xy, nb_d)
-	return one_box_info
+    one_box = one_box_clustering(boxes)
+    one_box_info = correct_predicted_box(one_box, lidar_with_idx, cluster_xy, nb_d)
+    return one_box_info
+
 
 def listen():
-	processor = dl_tracker()
-	# In ROS, nodes are uniquely named. If two nodes with the same
-	# node are launched, the previous one is kicked off. The
-	# anonymous=True flag means that rospy will choose a unique
-	# name for our 'listener' node so that multiple listeners can
-	# run simultaneously.
-	rp.init_node('dl_tracker', anonymous=True)
-	# spin() simply keeps python from exiting until this node is stopped
-	rp.spin()
+    processor = dl_tracker()
+    # In ROS, nodes are uniquely named. If two nodes with the same
+    # node are launched, the previous one is kicked off. The
+    # anonymous=True flag means that rospy will choose a unique
+    # name for our 'listener' node so that multiple listeners can
+    # run simultaneously.
+    rp.init_node('dl_tracker', anonymous=True)
+    # spin() simply keeps python from exiting until this node is stopped
+    rp.spin()
+
 
 if __name__ == '__main__':
-	listen()
+    listen()
