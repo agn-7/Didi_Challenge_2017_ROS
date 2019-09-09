@@ -146,9 +146,10 @@ private:
         std::cout<<"Frame: "<<framer<<"\n";
 
 		sensor_msgs::PointCloud2 response = *msg;
-		pcl::fromROSMsg(response, *cloud_);
+		pcl::fromROSMsg(response, *cloud_);  // pcl2 to pcl
 		PCLPointVector points = cloud_->points;
 		size_t pointCount = points.size();
+		std::cout<<pointCount<<std::endl;  // aGn
 		if (pointCount == 0u)
 		{
 			return;
@@ -328,10 +329,12 @@ private:
 			mit->scale.z = (*cit)->max()(2) - (*cit)->min()(2);
 			mit->color.a = 0.5;
 
-			if (mit->pose.position.x < 3 and mit->pose.position.x > 0){
+//			if (mit->pose.position.x < 5 and mit->pose.position.x > -5
+//			        and mit->pose.position.y > -5 and mit->pose.position.y < 5){
 			    TruePositive++;
 			    std::cout<<"TP: "<<TruePositive<<"\n";
-			}
+			    std::cout<<"x: "<<mit->pose.position.x<<" y: "<<mit->pose.position.y<<"\n";
+//			}
 
 			++mit;
 			++markerCnt;
