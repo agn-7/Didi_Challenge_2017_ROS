@@ -139,7 +139,7 @@ private:
   //      	}
 
 		sensor_msgs::PointCloud2 response = *msg;
-		pcl::fromROSMsg(response, *cloud_);
+		pcl::fromROSMsg(response, *cloud_);  // pcl2 to pcl
 		PCLPointVector points = cloud_->points;
 		size_t pointCount = points.size();
 		if (pointCount == 0u)
